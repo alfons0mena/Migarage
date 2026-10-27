@@ -42,14 +42,25 @@ hr{border:0;border-top:1px solid var(--line);margin:15px 0}
 <body>
 <header><h1>🔧 Mi Garaje</h1></header>
 
-<div class="container" id="main-menu">
+<div class="container" id="login">
+  <div class="box">
+    <h3 style="margin-top:0">🔐 Acceso</h3>
+    <input type="email" id="l-mail" placeholder="Correo" value="alfonsomenapeluqueros@gmail.com">
+    <input type="password" id="l-pass" placeholder="Contraseña">
+    <button class="btn" onclick="login()">Entrar</button>
+    <button class="btn sec" onclick="loginGoogle()">Entrar con Google</button>
+    <p id="l-msg" style="color:#e74c3c;font-size:.9em"></p>
+  </div>
+</div>
+
+<div class="container hidden" id="main-menu">
   <div id="menu"></div>
   <div class="box">
-    <b>💾 Copia de seguridad</b>
-    <p style="font-size:.85em;color:var(--mut);margin:6px 0">Los datos viven solo en este navegador. Descarga una copia de vez en cuando.</p>
-    <button class="btn sec" onclick="exportData()">Exportar copia</button>
+    <b>⬆️ Pasar datos antiguos</b>
+    <p style="font-size:.85em;color:var(--mut);margin:6px 0">Sube a la nube un archivo de copia exportado de la versión anterior. Hazlo solo una vez.</p>
     <button class="btn sec" onclick="document.getElementById('imp').click()">Importar copia</button>
     <input type="file" id="imp" accept="application/json" class="hidden" onchange="importData(event)">
+    <button class="btn sec" onclick="logout()">Cerrar sesión</button>
   </div>
 </div>
 
@@ -129,31 +140,50 @@ hr{border:0;border-top:1px solid var(--line);margin:15px 0}
   </div>
 </div>
 
-<script>
-const VEHICLES = [
-  {name:'Toyota RAV4', icon:'🚗', color:'#e74c3c', def:{matricula:'3047JNT',bastidor:'JTMWRREVX0D008379',neumaticos:'2494 cc / Híbrido (114 kW) - Faltan neumáticos',anio:'2016'}},
-  {name:'Citroën C4 VTR', label:'Citroën C4 VTR Coupe', icon:'🏎️', color:'#3498db', def:{}},
-  {name:'Citroën C3 Pluriel', icon:'🚙', color:'#2ecc71', def:{bastidor:'VF7HB8HZB28075588',neumaticos:'185/65R15 (Opc: 195/50R16) | 1.4 HDi (50kW)',anio:'2005'}},
-  {name:'Derbi Atlantis 49', icon:'🛵', color:'#f1c40f', def:{matricula:'C7046BKB',bastidor:'VTHATL0AA1G168646',neumaticos:'49 cc',anio:'2001'}},
-  {name:'Kawasaki Vulcan 500', icon:'🏍️', color:'#27ae60', def:{neumaticos:'498 cc'}},
-  {name:'Renault Trafic', icon:'🚐', color:'#e67e22', def:{}},
-  {name:'Opel Combo', icon:'🚐', color:'#9b59b6', def:{}},
-  {name:'Ford Mondeo', icon:'🚘', color:'#16a085', def:{}}
-];
-const MANT_INICIAL = {'Toyota RAV4':[{type:'Chequeo Integral Sistema Híbrido',km:'14925',notes:'Sellado por NIMO-GORDILLO AUTOMÓVILES, S.A.',date:'09/05/2017',image:null}]};
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signInWithPopup,GoogleAuthProvider,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {getFirestore,doc,setDoc,addDoc as fsAdd,deleteDoc,collection,onSnapshot} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-let cur = '';
+const app = initializeApp({
+  apiKey: "AIzaSyDbrM3oQ2TP5_-XCzoZnye1U8Apj7U8g-g",
+  authDomain: "app-mena-9dc06.firebaseapp.com",
+  projectId: "app-mena-9dc06",
+  storageBucket: "app-mena-9dc06.firebasestorage.app",
+  messagingSenderId: "366172677148",
+  appId: "1:366172677148:web:5bec8aca6575b99f3febd9"
+});
+const auth = getAuth(app), db = getFirestore(app);
+const OWNER = "alfonsomenapeluqueros@gmail.com";
+const VEHICLES = [
+  {name:'Toyota RAV4', icon:'🚗', color:'#e74c3c'},
+  {name:'Citroën C4 VTR', label:'Citroën C4 VTR Coupe', icon:'🏎️', color:'#3498db'},
+  {name:'Citroën C3 Pluriel', icon:'🚙', color:'#2ecc71'},
+  {name:'Derbi Atlantis 49', icon:'🛵', color:'#f1c40f'},
+  {name:'Kawasaki Vulcan 500', icon:'🏍️', color:'#27ae60'},
+  {name:'Renault Trafic', icon:'🚐', color:'#e67e22'},
+  {name:'Opel Combo', icon:'🚐', color:'#9b59b6'},
+  {name:'Ford Mondeo', icon:'🚘', color:'#16a085'}
+];
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const get = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch(e) { return d; } };
-const set = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch(e) { alert('No hay espacio suficiente. Exporta una copia y borra fotos antiguas.'); return false; } };
+const slug = n => n.replace(/[^a-zA-Z0-9]/g, '_');
+let cur = '', fichas = {}, regs = [], docsL = [], unsubs = [], vUnsubs = [];
 
-// Inicialización sin pisar datos existentes
-VEHICLES.forEach(v => {
-  const f = get(v.name + '_ficha', null);
-  if (!f) set(v.name + '_ficha', Object.assign({matricula:'',bastidor:'',neumaticos:'',proxItv:'',proxRev:'',proxSeg:'',anio:'',kmAct:''}, v.def));
-  else if (!f.anio && v.def.anio) { f.anio = v.def.anio; set(v.name + '_ficha', f); }
-  if (MANT_INICIAL[v.name] && localStorage.getItem(v.name + '_mantenimiento') === null) set(v.name + '_mantenimiento', MANT_INICIAL[v.name]);
+function show(id) { ['login','main-menu','vehicle-view'].forEach(x => $(x).classList.toggle('hidden', x !== id)); }
+async function login() { try { await signInWithEmailAndPassword(auth, $('l-mail').value.trim(), $('l-pass').value); } catch(e) { $('l-msg').textContent = 'No se pudo entrar. Revisa correo y contraseña.'; } }
+async function loginGoogle() { try { await signInWithPopup(auth, new GoogleAuthProvider()); } catch(e) { $('l-msg').textContent = 'No se pudo entrar con Google.'; } }
+function logout() { signOut(auth); }
+
+onAuthStateChanged(auth, u => {
+  unsubs.forEach(f => f()); unsubs = []; vUnsubs.forEach(f => f()); vUnsubs = [];
+  if (!u) { show('login'); return; }
+  if (u.email !== OWNER) { $('l-msg').textContent = 'Esta cuenta no tiene acceso.'; signOut(auth); return; }
+  show('main-menu');
+  VEHICLES.forEach(v => unsubs.push(onSnapshot(doc(db, 'garaje', slug(v.name)), s => {
+    fichas[v.name] = s.data() || {}; loadMenu();
+    if (cur === v.name) { updateAlerts(fichas[v.name]); if (!/INPUT|TEXTAREA/.test(document.activeElement.tagName)) fillFicha(); }
+  }, err => alert('Error de acceso a los datos: ' + err.message))));
 });
 
 function parseDate(s) {
@@ -161,8 +191,7 @@ function parseDate(s) {
   return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null;
 }
 function dayChip(icon, label, s, base) {
-  const d = parseDate(s);
-  let bg = base, extra = '';
+  const d = parseDate(s); let bg = base, extra = '';
   if (d) {
     const n = Math.ceil((d - new Date().setHours(0,0,0,0)) / 864e5);
     if (n < 0) { bg = '#c0392b'; extra = ' (vencida)'; }
@@ -175,7 +204,7 @@ function dayChip(icon, label, s, base) {
 function loadMenu() {
   const y = new Date().getFullYear();
   $('menu').innerHTML = VEHICLES.map((v, i) => {
-    const f = get(v.name + '_ficha', {});
+    const f = fichas[v.name] || {};
     const age = f.anio ? ` <span style="font-size:.7em;color:var(--mut);font-weight:normal">(${y - parseInt(f.anio)} años)</span>` : '';
     const warn = [f.proxItv, f.proxSeg].some(s => { const d = parseDate(s); return d && d < Date.now() + 30 * 864e5; }) ? ' ⚠️' : '';
     return `<div class="card" style="--c:${v.color}" onclick="openVehicle(${i})"><h2>${v.icon} ${esc(v.label || v.name)}${age}${warn}<small>${esc(f.matricula || 'Sin matrícula')}</small></h2><span class="arrow">➔</span></div>`;
@@ -183,16 +212,15 @@ function loadMenu() {
 }
 
 function openVehicle(i) {
-  cur = VEHICLES[i].name;
-  $('main-menu').classList.add('hidden');
-  $('vehicle-view').classList.remove('hidden');
-  $('vname').textContent = VEHICLES[i].label || cur;
-  switchTab('ficha');
-  loadFicha(); loadLists();
-  scrollTo(0, 0);
+  cur = VEHICLES[i].name; regs = []; docsL = [];
+  vUnsubs.forEach(f => f()); vUnsubs = [];
+  show('vehicle-view'); $('vname').textContent = VEHICLES[i].label || cur;
+  switchTab('ficha'); fillFicha(); loadLists(); loadDocs(); scrollTo(0, 0);
+  const s = slug(cur);
+  vUnsubs.push(onSnapshot(collection(db, 'garaje', s, 'registros'), q => { regs = q.docs.map(d => ({id: d.id, ...d.data()})); loadLists(); }));
+  vUnsubs.push(onSnapshot(collection(db, 'garaje', s, 'docs'), q => { docsL = q.docs.map(d => ({id: d.id, ...d.data()})); loadDocs(); }));
 }
-function goBack() { $('main-menu').classList.remove('hidden'); $('vehicle-view').classList.add('hidden'); loadMenu(); }
-
+function goBack() { vUnsubs.forEach(f => f()); vUnsubs = []; cur = ''; show('main-menu'); loadMenu(); }
 function switchTab(t) {
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.dataset.t === t));
   document.querySelectorAll('.tc').forEach(x => x.classList.remove('active'));
@@ -209,41 +237,14 @@ function updateAlerts(d) {
 }
 function saveFicha() {
   const d = {matricula:$('matricula').value, bastidor:$('bastidor').value, neumaticos:$('neumaticos').value, proxItv:$('prox-itv').value, proxRev:$('prox-rev').value, proxSeg:$('prox-seg').value, anio:$('anio-mat').value, kmAct:$('km-act').value};
-  set(cur + '_ficha', d); updateAlerts(d);
+  setDoc(doc(db, 'garaje', slug(cur)), d, {merge: true}).catch(e => alert('No se pudo guardar: ' + e.message));
 }
-function loadFicha() {
-  const d = get(cur + '_ficha', {});
+function fillFicha() {
+  const d = fichas[cur] || {};
   $('matricula').value = d.matricula || ''; $('bastidor').value = d.bastidor || ''; $('neumaticos').value = d.neumaticos || '';
   $('prox-itv').value = d.proxItv || ''; $('prox-rev').value = d.proxRev || ''; $('prox-seg').value = d.proxSeg || '';
   $('anio-mat').value = d.anio || ''; $('km-act').value = d.kmAct || '';
-  updateAlerts(d); loadDocs();
-}
-
-function getDocs() {
-  let docs = get(cur + '_fichaDocs', null);
-  if (!docs) {
-    docs = [];
-    const old = localStorage.getItem(cur + '_fichaImg');
-    if (old) { docs.push({image: old, date: 'Anterior'}); set(cur + '_fichaDocs', docs); }
-  }
-  return docs;
-}
-function loadDocs() {
-  const docs = getDocs();
-  $('docs').innerHTML = docs.length ? docs.map((d, i) => ({d, i})).reverse().map(({d, i}) =>
-    `<div class="hi" style="border:1px solid var(--line);border-radius:8px;padding:10px"><button class="del" style="right:8px" onclick="delDoc(${i})">🗑️</button><div style="font-size:.8em;color:var(--mut)">📅 ${esc(d.date)}</div><img src="${d.image}" class="img" alt="Documento"></div>`).join('')
-    : '<p class="empty">No hay fotos guardadas.</p>';
-}
-function addDoc(e) {
-  const f = e.target.files[0]; if (!f) return;
-  compress(f, 800, 0.6, url => {
-    const docs = getDocs(); docs.push({image: url, date: new Date().toLocaleDateString('es-ES')});
-    if (set(cur + '_fichaDocs', docs)) { e.target.value = ''; loadDocs(); }
-  });
-}
-function delDoc(i) {
-  if (!confirm('¿Borrar esta foto?')) return;
-  const docs = getDocs(); docs.splice(i, 1); set(cur + '_fichaDocs', docs); loadDocs();
+  updateAlerts(d);
 }
 
 function compress(file, maxW, q, cb) {
@@ -262,32 +263,42 @@ function compress(file, maxW, q, cb) {
   r.readAsDataURL(file);
 }
 
+function loadDocs() {
+  const l = [...docsL].sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  $('docs').innerHTML = l.length ? l.map(d =>
+    `<div class="hi" style="border:1px solid var(--line);border-radius:8px;padding:10px"><button class="del" style="right:8px" onclick="delDoc('${d.id}')">🗑️</button><div style="font-size:.8em;color:var(--mut)">📅 ${esc(d.date)}</div><img src="${d.image}" class="img" alt="Documento"></div>`).join('')
+    : '<p class="empty">No hay fotos guardadas.</p>';
+}
+function addDoc(e) {
+  const f = e.target.files[0]; if (!f) return;
+  compress(f, 800, 0.55, url => {
+    fsAdd(collection(db, 'garaje', slug(cur), 'docs'), {image: url, date: new Date().toLocaleDateString('es-ES'), ts: Date.now()})
+      .then(() => { e.target.value = ''; }).catch(err => alert('No se pudo guardar: ' + err.message));
+  });
+}
+function delDoc(id) { if (confirm('¿Borrar esta foto?')) deleteDoc(doc(db, 'garaje', slug(cur), 'docs', id)); }
+
 function saveRecord(e, cat) {
   e.preventDefault();
   const p = cat === 'mantenimiento' ? 'mant' : 'otro', form = e.target;
-  const rec = {
-    type: $(p + '-type').value, km: $(p + '-km').value || '--', cost: $(p + '-cost').value,
-    notes: $(p + '-notes').value, date: new Date().toLocaleDateString('es-ES'), image: null
-  };
+  const rec = {cat, type: $(p + '-type').value, km: $(p + '-km').value || '--', cost: $(p + '-cost').value,
+    notes: $(p + '-notes').value, date: new Date().toLocaleDateString('es-ES'), image: null, ts: Date.now()};
   const done = img => {
     rec.image = img;
-    const data = get(cur + '_' + cat, []); data.push(rec);
-    if (set(cur + '_' + cat, data)) { form.reset(); loadLists(); }
+    fsAdd(collection(db, 'garaje', slug(cur), 'registros'), rec)
+      .then(() => form.reset()).catch(err => alert('No se pudo guardar: ' + err.message));
   };
   const f = $(p + '-file').files[0];
   f ? compress(f, 800, 0.5, done) : done(null);
 }
-function delRecord(cat, i) {
-  if (!confirm('¿Borrar este registro?')) return;
-  const data = get(cur + '_' + cat, []); data.splice(i, 1); set(cur + '_' + cat, data); loadLists();
-}
+function delRecord(id) { if (confirm('¿Borrar este registro?')) deleteDoc(doc(db, 'garaje', slug(cur), 'registros', id)); }
 function loadLists() {
   ['mantenimiento', 'otros'].forEach(cat => {
-    const data = get(cur + '_' + cat, []);
+    const data = regs.filter(r => r.cat === cat).sort((a, b) => (b.ts || 0) - (a.ts || 0));
     const total = data.reduce((s, r) => s + (parseFloat(r.cost) || 0), 0);
     $(cat === 'mantenimiento' ? 'mant-total' : 'otros-total').textContent = total ? total.toFixed(2) + ' €' : '';
-    $(cat + '-content').innerHTML = data.length ? data.map((r, i) => ({r, i})).reverse().map(({r, i}) =>
-      `<div class="hi"><button class="del" onclick="delRecord('${cat}',${i})">🗑️</button>
+    $(cat + '-content').innerHTML = data.length ? data.map(r =>
+      `<div class="hi"><button class="del" onclick="delRecord('${r.id}')">🗑️</button>
         <div class="hd">📅 ${esc(r.date)} | ⏱️ ${esc(r.km)} Km${r.cost ? ' | 💶 ' + esc(r.cost) + ' €' : ''}</div>
         <div class="ht">🔧 ${esc(r.type)}</div>
         <div class="hn">${esc(r.notes)}</div>
@@ -296,30 +307,25 @@ function loadLists() {
   });
 }
 
-function exportData() {
-  const out = {};
-  for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); out[k] = localStorage.getItem(k); }
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([JSON.stringify(out)], {type: 'application/json'}));
-  a.download = 'mi-garaje-' + new Date().toISOString().slice(0, 10) + '.json';
-  a.click();
-}
-function importData(e) {
+async function importData(e) {
   const f = e.target.files[0]; if (!f) return;
-  const r = new FileReader();
-  r.onload = () => {
-    try {
-      const o = JSON.parse(r.result);
-      if (!confirm('Esto sustituirá los datos actuales. ¿Continuar?')) return;
-      Object.keys(o).forEach(k => localStorage.setItem(k, o[k]));
-      loadMenu(); alert('Copia importada.');
-    } catch (err) { alert('Archivo no válido.'); }
-    e.target.value = '';
-  };
-  r.readAsText(f);
+  if (!confirm('Se subirán a la nube los datos de esa copia. Hazlo solo una vez. ¿Continuar?')) { e.target.value = ''; return; }
+  try {
+    const o = JSON.parse(await f.text()); let n = 0;
+    const p = k => { try { return JSON.parse(o[k]); } catch(x) { return null; } };
+    for (const v of VEHICLES) {
+      const s = slug(v.name), fi = p(v.name + '_ficha');
+      if (fi) await setDoc(doc(db, 'garaje', s), fi, {merge: true});
+      for (const c of ['mantenimiento', 'otros'])
+        for (const r of p(v.name + '_' + c) || []) await fsAdd(collection(db, 'garaje', s, 'registros'), {...r, cat: c, ts: Date.now() + n++});
+      for (const d of p(v.name + '_fichaDocs') || []) await fsAdd(collection(db, 'garaje', s, 'docs'), {...d, ts: Date.now() + n++});
+    }
+    alert('Copia subida.');
+  } catch(x) { alert('No se pudo importar: ' + x.message); }
+  e.target.value = '';
 }
 
-loadMenu();
+Object.assign(window, {login, loginGoogle, logout, openVehicle, goBack, switchTab, saveFicha, addDoc, delDoc, saveRecord, delRecord, importData});
 </script>
 </body>
 </html>
