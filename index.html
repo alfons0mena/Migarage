@@ -204,7 +204,15 @@ function dayChip(icon, label, s, base) {
 
 function loadMenu() {
   const y = new Date().getFullYear();
-  $('menu').innerHTML = VEHICLES.map((v, i) => {
+  $('menu').innerHTML = VEHICLES.map((v, i) => ({v, i})).sort((a, b) => {
+    const ya = parseInt((fichas[a.v.name] || {}).anio, 10);
+    const yb = parseInt((fichas[b.v.name] || {}).anio, 10);
+    const va = Number.isFinite(ya) && ya > 0, vb = Number.isFinite(yb) && yb > 0;
+    if (va && vb) return ya - yb || a.i - b.i;
+    if (va) return -1;
+    if (vb) return 1;
+    return a.i - b.i;
+  }).map(({v, i}) => {
     const f = fichas[v.name] || {};
     const age = f.anio ? ` <span style="font-size:.7em;color:var(--mut);font-weight:normal">(${y - parseInt(f.anio)} años)</span>` : '';
     const warn = [f.proxItv, f.proxSeg].some(s => { const d = parseDate(s); return d && d < Date.now() + 30 * 864e5; }) ? ' ⚠️' : '';
