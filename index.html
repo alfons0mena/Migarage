@@ -258,14 +258,31 @@ function fillFicha() {
 
 function compress(file, maxW, q, cb) {
   const r = new FileReader();
+  r.onerror = () => alert('No se pudo leer la imagen. Prueba con otra foto.');
   r.onload = e => {
     const img = new Image();
+    img.onerror = () => alert('No se pudo abrir la imagen. Prueba con una foto JPG o PNG.');
     img.onload = () => {
-      let w = img.width, h = img.height;
-      if (w > maxW) { h *= maxW / w; w = maxW; }
-      const c = document.createElement('canvas'); c.width = w; c.height = h;
-      c.getContext('2d').drawImage(img, 0, 0, w, h);
-      cb(c.toDataURL('image/jpeg', q));
+      // Empezamos con más resolución y calidad, reduciendo solo si hace falta
+      // para respetar el límite de tamaño de un documento de Firestore.
+      let scale = Math.min(1, maxW / img.width);
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const make = () => {
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL('image/jpeg', q);
+      };
+      let data = make();
+      while (data.length > 900000 && q > 0.5) { q -= 0.07; data = make(); }
+      while (data.length > 900000 && scale > 0.45) { scale *= 0.85; data = make(); }
+      if (data.length > 1000000) {
+        alert('La imagen es demasiado grande para guardarla con seguridad. Prueba una foto más pequeña.');
+        return;
+      }
+      cb(data);
     };
     img.src = e.target.result;
   };
@@ -280,7 +297,7 @@ function loadDocs() {
 }
 function addDoc(e) {
   const f = e.target.files[0]; if (!f) return;
-  compress(f, 800, 0.55, url => {
+  compress(f, 1600, 0.82, url => {
     fsAdd(collection(db, 'garaje', slug(cur), 'docs'), {image: url, date: new Date().toLocaleDateString('es-ES'), ts: Date.now()})
       .then(() => { e.target.value = ''; }).catch(err => alert('No se pudo guardar: ' + err.message));
   });
@@ -298,7 +315,7 @@ function saveRecord(e, cat) {
       .then(() => form.reset()).catch(err => alert('No se pudo guardar: ' + err.message));
   };
   const f = $(p + '-file').files[0];
-  f ? compress(f, 800, 0.5, done) : done(null);
+  f ? compress(f, 1400, 0.78, done) : done(null);
 }
 function delRecord(id) { if (confirm('¿Borrar este registro?')) deleteDoc(doc(db, 'garaje', slug(cur), 'registros', id)); }
 function loadLists() {
